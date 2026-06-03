@@ -9,10 +9,11 @@ mask/*.mat
 checkpoint/*.pth
 results/*.mat
 results/*.png
-data/photom/kspace/*.h5
-data/photom/map/*.h5
 paper_text.txt
 *.pth
+
+# Exclude all data files
+data/
 
 # Large data files
 data/knee_singlecoil_test.tar.xz
