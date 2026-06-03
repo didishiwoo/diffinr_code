@@ -1,0 +1,15 @@
+.trae-cn-server/
+__pycache__/
+*.pyc
+*.log
+checkpoints/
+
+mask/*.mat
+
+checkpoint/*.pth
+results/*.mat
+results/*.png
+data/photom/kspace/*.h5
+data/photom/map/*.h5
+paper_text.txt
+*.pth

@@ -1,0 +1,12 @@
+# DiffINR Inference dependencies
+# Install PyTorch with CUDA for your specific environment first:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+
+numpy>=1.19
+scipy>=1.5
+scikit-image>=0.17
+h5py>=3.0
+ml-collections>=0.1
+absl-py>=0.12
+tensorflow>=2.4
+tensorboard>=2.0
