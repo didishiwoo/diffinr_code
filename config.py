@@ -35,9 +35,10 @@ def get_config():
     sampling.datashift = "photom"
 
     # paper Algorithm 1 hyper-parameters
-    sampling.T = 2000                    # total reverse steps
-    sampling.t_star = 1200               # INR start timestep
-    sampling.k = 50                      # INR interval
+    sampling.mode = "sde"                  # "sde" (continuous Eq.11) or "ddpm" (discrete DDPM update)
+    sampling.T = 2000                    # total reverse steps (paper: 2000)
+    sampling.t_star = 1200               # INR start timestep (paper: 1200)
+    sampling.k = 50                      # INR interval (paper: 50)
 
     # data
     config.data = data = ml_collections.ConfigDict()
@@ -47,8 +48,8 @@ def get_config():
     data.num_channels = 2
     data.random_flip = True
     data.uniform_dequantization = False
-    data.normalize_type = "minmax"
-    data.normalize_coeff = 1.0
+    data.normalize_type = "std"      # HFS-SDE training uses "std", not "minmax"
+    data.normalize_coeff = 1.5       # kspace / (1.5 * std(kspace))
 
     # model (matched with HFS-SDE VP-SDE pretrained weights)
     config.model = model = ml_collections.ConfigDict()

@@ -13,3 +13,7 @@ data/photom/kspace/*.h5
 data/photom/map/*.h5
 paper_text.txt
 *.pth
+
+# Large data files
+data/knee_singlecoil_test.tar.xz
+data/knee_singlecoil_test/

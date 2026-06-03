@@ -67,7 +67,7 @@
                      │       (复用 VPSDE.marginal_prob)   │
                      │                                   │
                      │    ③ INR-DC (条件触发)            │
-                     │      if t > t*(1200) and (t-1)%k(50)==0: │
+                     │      if t <= t*(1200) and (t-1)%k(50)==0:   # 后半程触发 │
                      │        Stage 1: prior_embedding   │
                      │        Stage 2: dc_refinement     │
                      │        → 加噪回映射              │
@@ -95,6 +95,7 @@
 
 ---
 
-> 文档版本：v0.2
+> 文档版本：v0.3
 > 创建日期：2026-06-03
+> v0.3 修正：INR-DC 条件改为 t <= t*（后半程触发），代码中 step > t_star → step <= t_star
 > 审批状态：✅ 已审批

@@ -31,11 +31,11 @@
 │  │    ε ~ N(0, I) if t > 1 else 0                               │   │
 │  │    x_{t-1} = (1 + 0.5β_t)·x_t + β_t·s_θ(x_t, t) + √β_t·ε   │   │
 │  │                                                               │   │
-│  │    ═══ ② Tweedie Denoising (Eq.6) ═══                       │   │
-│  │    x₀|ₜ₋₁ = (xₜ₋₁ - √(1-ᾱₜ₋₁)·s_θ(xₜ₋₁, t)) / √ᾱₜ₋₁      │   │
+│  │    ═══ ② Tweedie Denoising (Eq.6, Score形式: 加号) ═══                       │
+│    x₀|ₜ₋₁ = (xₜ₋₁ + (1-ᾱₜ₋₁)·s_θ(xₜ₋₁, t)) / √ᾱₜ₋₁      │   │
 │  │                                                               │   │
-│  │    ═══ ③ INR-DC (条件触发) ═══                              │   │
-│  │    if t > t*(1200) and (t-1) % k(50) == 0:                   │   │
+│  │    ═══ ③ INR-DC (条件触发: 后半程 t ≤ t*) ═══                              │   │
+│  │    if t <= t*(1200) and (t-1) % k(50) == 0:                   │   │
 │  │      Stage 1: prior_embedding(INR, x₀|ₜ₋₁)                   │   │
 │  │      Stage 2: dc_refinement(INR, y, A)                       │   │
 │  │      → x̂₀|ₜ₋₁ = INR(d)                                       │   │
@@ -98,13 +98,23 @@ x_{t-1} = (1 + 0.5·β_t/T)·x_t
 >
 > 这避免了手算导致的数值误差，确保与预训练权重一致。
 
-### 3.3 Tweedie Denoising (论文 Eq.6)
+### 3.3 Tweedie Denoising (论文 Eq.6) — ⚠️ 符号修正
 
-直接复用 `VPSDE.marginal_prob`:
+> **重要**: 论文 Eq.(6) 使用 DDPM 离散符号惯例，写为 `x_D = (x_t - √(1-ᾱ)·ε_θ) / √ᾱ`。
+> 但 HFS-SDE 预训练权重输出的是 **Score**（即 `∇log p_t(x) = -ε / √(1-ᾱ)`），
+> 因此代码实现必须使用 **加号**：`x₀ = (x + std² · score) / √ᾱ`。
+
+复用 `VPSDE.marginal_prob`:
 ```
 mean, std = sde.marginal_prob(x, t_cont)
-# 其中 std = √(1 - ᾱ(t))
-# Tweedie: x₀_pred = (x - std · s_θ) / (mean / x)
+# std = √(1 - ᾱ(t))
+# √ᾱ(t) = mean / x = √(1 - std²)
+
+# ✅ 正确公式 (Score 形式，加号):
+#   x₀_pred = (x + std² · s_θ(x, t)) / √ᾱ
+
+# ❌ 错误公式 (照抄论文 Eq.6 的减号会导致数值爆炸):
+#   x₀_pred = (x - std · s_θ(x, t)) / √ᾱ   ← 这是 DDPM ε-形式，不适用于 Score 模型
 ```
 
 得:
@@ -113,7 +123,8 @@ def tweedie(self, x, t_cont):
     score = self.score_model(x, t_cont * torch.ones(x.shape[0]))
     mean, std = self.sde.marginal_prob(x, t_cont)
     sqrt_alpha_bar = mean / x  # √ᾱ(t)
-    return (x - std * score) / sqrt_alpha_bar
+    # Score 模型输出 ∇log p，必须用加号
+    return (x + std * std * score) / sqrt_alpha_bar
 ```
 
 ### 3.4 加噪回映射 (论文 Algorithm 1, line 10-11)
@@ -154,32 +165,31 @@ class DiffINRSampler:
         return t_cont.expand(n)
 
     def tweedie(self, x, t_cont):
-        """Tweedie denoising via sde.marginal_prob (Eq.6)
+        """Tweedie denoising via sde.marginal_prob (Eq.6, Score-form)
+
+        ⚠️ HFS-SDE 预训练模型输出 Score (∇log p)，而非 ε。
+        因此必须使用加号：
+          x₀_pred = (x + std² · s_θ(x, t)) / √ᾱ
 
         复用 VPSDE.marginal_prob:
           mean = √ᾱ(t) · x
           std  = √(1 - ᾱ(t))
-        → x₀_pred = (x - std · s_θ(x, t)) / (mean / x)
         """
         score = self.score_model(x, self._batch_t(t_cont, x.shape[0]))
         mean, std = self.sde.marginal_prob(x, t_cont)
         sqrt_alpha_bar = mean / x  # √ᾱ(t)
-        return (x - std * score) / sqrt_alpha_bar
+        return (x + std**2 * score) / sqrt_alpha_bar
 
-    def reverse_step(self, x, t_cont, epsilon):
-        """Eq.11: 一步反向扩散
+    def reverse_step(self, x, t_cont):
+        """Eq.11: x_{t-1} = (1 + 0.5·β_t/T)·x_t + (β_t/T)·s_θ + √(β_t/T)·ε
 
-        β_t 来自 VPSDE.sde(x, t) 中的 beta_t (连续时间)
-        离散化: β_discrete = β_t / T
+        β(t) = β_min + t_cont · (β_max - β_min)，连续 t ∈ [0,1]
+        离散化: β_discrete = β(t) / T
         """
-        t_batch = self._batch_t(t_cont, x.shape[0])
-        beta_t = self.sde.sde(x, t_batch)[0]  # 获取 β_t * x 的系数再归一
-
-        # Eq.11 实现
         beta = (self.beta_min + t_cont * (self.beta_max - self.beta_min)) / self.T
-        score = self.score_model(x, t_batch)
-        x_next = (1 + 0.5 * beta) * x + beta * score + torch.sqrt(beta) * epsilon
-        return x_next
+        score = self.score_model(x, self._batch_t(t_cont, x.shape[0]))
+        eps = torch.randn_like(x)
+        return (1 + 0.5 * beta) * x + beta * score + torch.sqrt(beta) * eps
 
     def noise_remap(self, x_clean, t_cont):
         """加噪回映射 (Algorithm 1, line 10-11)
@@ -196,21 +206,18 @@ class DiffINRSampler:
         x = torch.randn(img_shape)  # x_T ~ N(0, I)
 
         for step in range(self.T, 0, -1):
-            t_cont = torch.tensor((step - 1) / self.T)
-            epsilon = torch.randn_like(x) if step > 1 else 0
+            # ① 反向扩散步 (Eq.11): x_t → x_{t-1}
+            x_prev = self.reverse_step(x, (step - 1) / self.T)
 
-            # ① 反向扩散步 (Eq.11)
-            x_prev = self.reverse_step(x, t_cont, epsilon)
-
-            # ② Tweedie Denoising (Eq.6)
-            x0_pred = self.tweedie(x_prev, t_cont)
+            # ② Tweedie Denoising (Eq.6, Score 形式: 加号)
+            x0_pred = self.tweedie(x_prev, step - 1 if step > 1 else 1)
 
             # ③ INR-DC (条件触发: t > t* 且 (t-1) % k == 0)
             if step > self.t_star and (step - 1) % self.k == 0:
-                inr_out = self.inr_dc_module(x0_pred, y, forward_op, t_cont)
-                x_prev = self.noise_remap(inr_out, t_cont)
-
-            x = x_prev
+                inr_out = self.inr_dc_module.prior_embedding(x0_pred).dc_refinement(y, forward_op)
+                x = self.noise_remap(inr_out, step - 1)  # 加噪回映射
+            else:
+                x = x_prev  # 直接用反向扩散输出
 
         return x
 ```
@@ -364,6 +371,6 @@ HFS-SDE/
 
 ---
 
-> 文档版本: v0.3
+> 文档版本: v0.4
 > 修正日期: 2026-06-03
-> v0.3 修正: β_t 复用 VPSDE.marginal_prob; Hash Encoding P0 用 L=4; forward_operator 去 adjoint 加 to_complex
+> v0.4 修正: β_t 复用 VPSDE.marginal_prob; Hash Encoding P0 用 L=4; forward_operator 去 adjoint 加 to_complex; INR-DC 条件改为 t <= t*（后半程触发）
