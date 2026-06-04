@@ -1,6 +1,6 @@
 # DiffINR — Implicit Neural Representation for MRI Reconstruction
 
-> **复现论文**: [DiffINR: INR-based Posterior Sampling for Diffusion Models](https://www.sciencedirect.com/science/article/pii/S1361841524003232) (Medical Image Analysis, 2025)
+> **复现论文**: [Highly accelerated MRI via implicit neural representation guided posterior sampling of diffusion models](https://www.sciencedirect.com/science/article/pii/S1361841524003232) (Medical Image Analysis, 2025)
 >
 > **目标**: 基于 HFS-SDE (TMI 2024) 的 VP-SDE 预训练权重，自实现论文 Algorithm 1 的 DDPM-style 反向扩散采样流程，集成 INR 数据矫正（INR-DC），验证其在 MRI 欠采样重建上的效果。
 
