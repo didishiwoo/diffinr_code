@@ -1,0 +1,1251 @@
+Contents lists available at ScienceDirect
+Medical Image Analysis
+journal homepage: www.elsevier.com/locate/media
+Highly accelerated MRI via implicit neural representation guided posterior
+sampling of diffusion models
+Jiayue Chu a, Chenhe Du b, Xiyue Lin b, Xiaoqun Zhang c, Lihui Wang d, Yuyao Zhang b,
+Hongjiang Wei a,e,∗
+a School of Biomedical Engineering, Shanghai Jiao Tong University, Shanghai, China
+b School of Information Science and Technology, ShanghaiTech University, Shanghai, China
+c Institute of Natural Sciences and School of Mathematical Sciences and MOE-LSC and SJTU-GenSci Joint Laboratory, Shanghai Jiao Tong
+University, Shanghai, China
+d Key Laboratory of Intelligent Medical Image Analysis and Precise Diagnosis of Guizhou Province, School of Computer Science and Technology, Guizhou
+University, Guiyang, China
+e National Engineering Research Center of Advanced Magnetic Resonance Technologies for Diagnosis and Therapy (NERC-AMRT), Shanghai Jiao Tong
+University, Shanghai, China
+A R T I C L E
+I N F O
+Keywords:
+Diffusion model
+Posterior sampling
+Implicit neural representation
+MRI acceleration
+A B S T R A C T
+Reconstructing high-fidelity magnetic resonance (MR) images from under-sampled k-space is a commonly used
+strategy to reduce scan time. The posterior sampling of diffusion models based on the real measurement
+data holds significant promise of improved reconstruction accuracy. However, traditional posterior sampling
+methods often lack effective data consistency guidance, leading to inaccurate and unstable reconstructions.
+Implicit neural representation (INR) has emerged as a powerful paradigm for solving inverse problems by
+modeling a signal’s attributes as a continuous function of spatial coordinates. In this study, we present a novel
+posterior sampler for diffusion models using INR, named DiffINR. The INR-based component incorporates both
+the diffusion prior distribution and the MRI physical model to ensure high data fidelity. DiffINR demonstrates
+superior performance on in-distribution datasets with remarkable accuracy, even under high acceleration
+factors (up to R = 12 in single-channel reconstruction). Furthermore, DiffINR exhibits excellent generalizability
+across various tissue contrasts and anatomical structures with low uncertainty. Overall, DiffINR significantly
+improves MRI reconstruction in terms of accuracy, generalizability and stability, paving the way for further
+accelerating MRI acquisition. Notably, our proposed framework can be a generalizable framework to solve
+inverse problems in other medical imaging tasks.
+1. Introduction
+Magnetic Resonance Imaging (MRI) is a widely used imaging tech-
+nique, renowned for its exceptional soft tissue contrast, yet hampered
+by the inherently long scan time. A common strategy to accelerate
+MRI scans involves under-sampling k-space data while maintaining
+the diagnostic quality of the reconstructed images. This approach is
+challenging because image reconstruction from sparsely sampled data
+is an ill-posed inverse problem, making it difficult to achieve artifact-
+free reconstructions. Extensive research has explored various methods
+to address this challenge, including traditional optimization and deep
+learning (DL)-based approaches (Lustig et al., 2007; Aggarwal et al.,
+2018). Traditional methods, such as compressed sensing (CS), leverage
+prior knowledge about the inherent sparsity in a transformational
+domain Lustig et al. (2007), Doneva et al. (2010), Gu et al. (2021) or
+∗Corresponding author.
+E-mail address: hongjiang.wei@sjtu.edu.cn (H. Wei).
+rely on low-rankness (Jin et al., 2016; Lingala et al., 2011; Zhang et al.,
+2015) to reconstruct images. However, these methods face limitations
+when it comes to achieving higher acceleration rates. Such limitations
+stem from the assumptions regarding the prior knowledge that is typi-
+cally either manually constructed or confined to learned sparse codes,
+limiting their efficacy and adaptability.
+Over the past few years, supervised DL has been regarded as a
+powerful data-driven approach for solving inverse problems of MRI
+reconstruction (Aggarwal et al., 2018; Zhu et al., 2018; Hammernik
+et al., 2018; Jin et al., 2017; Ongie et al., 2020), demonstrating ad-
+vanced performance in reconstructing highly under-sampled MRI data.
+However, these methods need large quantities of high-quality data pairs
+for training, which is a challenge to obtain in the medical imaging
+field. Moreover, the effectiveness of these models tends to decline
+https://doi.org/10.1016/j.media.2024.103398
+Received 28 July 2024; Received in revised form 10 November 2024; Accepted 15 November 2024
+Medical Image Analysis 100 (2025) 103398 
+Available online 23 November 2024 
+1361-8415/© 2024 Elsevier B.V. All rights are reserved, including those for text and data mining, AI training, and similar technologies. 
+J. Chu et al.
+when applied to out-of-distribution (OOD) conditions, such as differ-
+ent acceleration rates, sampling patterns, and anatomical structures.
+To overcome these challenges, data-specific unsupervised DL methods
+have been proposed, such as deep image prior (DIP). The DIP frame-
+work proposed in Ulyanov et al. (2018) shows that convolutional neural
+networks (CNNs) have the intrinsic ability to regularize a variety of
+ill-posed inverse problems without the need for paired training data.
+However, DIP-based methods often suffer from spectral bias (Rahaman
+et al., 2019; Shi et al., 2022), leading to the loss of high-frequency
+details in reconstructed images. To address this limitation, coordinate-
+based implicit neural representation (INR) has emerged as an effective
+solution (Yüce et al., 2022). Technically, INR represents the target
+object as a continuous function of the spatial coordinates, which is
+parameterized with a fully connected neural network. Before being
+fed into the network, the coordinates are transformed through unique
+encoding techniques into a more resilient and adaptable representation
+domain (e.g., Fourier domain Tancik et al. (2020)) to reduce spectral
+bias (Mildenhall et al., 2021; Wang et al., 2023). A well-trained INR
+acts as a continuous function to map image spatial coordinates to
+corresponding image intensities. INR offers several notable advantages:
+(1) a flexible framework for incorporating specific priors or regular-
+izations, and (2) the ability to capture high-frequency details of the
+representing object (Tancik et al., 2020; Müller et al., 2022). Previous
+studies have shown that INR can outperform traditional methods when
+combined with specific imaging physical priors (Shen et al., 2022; Feng
+et al., 2023). However, similar to the traditional CS-based methods,
+INR faces a limitation in high acceleration rates due to its reliance
+on hand-crafted priors, such as total variation (TV) (Strong and Chan,
+2003). These hand-crafted priors often struggle to represent complex
+underlying data distributions accurately.
+Recently, the diffusion model has shown its superior capability in
+MRI acceleration (Chung et al., 2022b; Song et al., 2024). Specifically,
+an unconditional pre-trained diffusion model serves as a generative
+prior and contains rich knowledge of the complicated MR image struc-
+tures independent of specific scanning parameters or tissue types. By
+leveraging these unconditional diffusion priors, reconstructing specific
+MR images with under-sampled data to ensure data consistency (DC)
+can be conceptualized as posterior sampling for diffusion models. Cur-
+rently, there are two main categories of posterior sampling methods for
+DC operations: (1) projecting the generated prior onto the measurement
+space at each reverse sampling step (Song et al., 2021; Peng et al.,
+2022; Chung and Ye, 2022; Jalal et al., 2021) and (2) calculating
+the posterior probability from the measurements based on certain
+assumptions (Chung et al., 2022a, 2023a). Although these two types of
+posterior sampling methods have demonstrated commendable efficacy
+in MRI reconstruction, they encounter challenges with uncertainty and
+insufficient DC (Chung et al., 2023b), resulting in inaccurate and in-
+stable MRI reconstruction. This is especially problematic when dealing
+with highly accelerated rates or OOD data, where these posterior sam-
+pling methods are prone to producing erroneous and unstable results
+(e.g., ring artifacts (Chung and Ye, 2022)). In clinical settings, any
+inaccuracies and instabilities in image reconstructions could lead to
+misjudgments by healthcare professionals.
+In this study, we develop an INR-based posterior sampling technique
+for high-acceleration MRI reconstruction called DiffINR. Inspired by the
+work in Chung and Ye (2022), Chung et al. (2023a), we introduce
+INR into the posterior sampling process of diffusion models for DC
+operation. Our INR-based posterior sampler maintains DC throughout
+the diffusion sampling process by leveraging INR’s unique ability to
+integrate diffusion priors with the MRI physical models. Specifically, we
+use a well-trained diffusion model to generate prior information about
+high-quality MRI distribution. We then employ INR to guarantee the
+reconstruction DC for specific measurements. We conduct experiments
+on in-distribution and out-of-distribution datasets to demonstrate the
+superiority of the proposed method. Results show that the INR-based
+posterior sampler can generate more accurate and stable reconstruction
+results. Our contributions are as follows:
+(1) To the best of our knowledge, DiffINR is the first method that
+explores the potential of combining the diffusion model with
+INR-based DC operations for solving the inverse problem in MRI
+reconstruction.
+(2) Our INR-based module is training-free and can be easily inte-
+grated into other diffusion models. Additionally, the INR-based
+module can be easily combined with specific physical models
+(e.g., MRI forward physical model) to achieve accurate and
+stable DC.
+(3) The quantitative and qualitative results demonstrate that DiffINR
+effectively improves the accuracy of MRI reconstruction on in-
+distribution datasets and offers performance comparable to su-
+pervised DL methods. In addition, DiffINR exhibits superior
+performance in OOD datasets, indicating its excellent general-
+izability.
+(4) DiffINR considerably reduces the uncertainty typically seen in
+diffusion-based MRI reconstruction, yielding high-quality results
+with high stability even when working with noisy measure-
+ments.
+2. Related work
+2.1. Problem formulation
+In accelerated MRI acquisition, we formulate the process as the
+following forward measurement model:
+𝑦= 𝐴𝑥+ 𝑒,
+(1)
+where 𝑥∈C𝑛is the desired MR image, 𝑦∈C𝑚is the measurement data
+in k-space, 𝑒∈C𝑚represents noise, and 𝐴∈C𝑚×𝑛denotes the forward
+acquisition operator. Specifically, the forward operator can be written
+as
+𝐴= 𝑀 𝐹 𝑆 ,
+(2)
+where 𝑀is the diagonalized sampling mask that represents the sub-
+sampling operator,
+𝐹
+is the Fourier transform matrix and
+𝑆= [𝑆1, 𝑆2, … , 𝑆𝑗] denotes the diagonalized sensitivity map matrix of
+𝑗different coils.
+Recovering 𝑥from measurement 𝑦can be treated as a posterior
+sampling process based on the conditional probability density distri-
+bution 𝑝(𝑥|𝑦). Thus, the reconstruction problem can be formulated as a
+maximum posterior probability (MAP) estimation:
+𝑥0 = ar gmax
+𝑥
+log 𝑝(𝑥|𝑦) = ar gmin
+𝑥
+− log 𝑝(𝑦|𝑥) − log 𝑝(𝑥)
+(3)
+where 𝑥0 is the final reconstruction.
+To solve the posterior sampling problem by diffusion model, iter-
+ative denoising followed by DC operations from timestep 𝑇to 0 is
+employed to get the clean image 𝑥0 for measurement data 𝑦.
+2.2. Diffusion model in MRI reconstruction
+In recent years, diffusion models have shown great potential in
+solving the MAP estimation of MRI reconstruction for better accuracy
+and generalization capability (Jiang et al., 2024; Luo et al., 2023;
+Korkmaz et al., 2023; Xie and Li, 2022; Cao et al., 2022b). Jalal et al.
+(2021) first proposed to use of annealed Langevin Dynamics posterior
+sampling for multi-channel acquired MRI reconstruction. Chung and Ye
+(2022) and Song et al. (2021) used score-based diffusion with iterative
+DC projections, achieving high-quality posterior sampling results. Based
+on the idea of DC projection in the sampling phase, Peng et al. (2022)
+proposed a coarse-to-fine sampling strategy for accelerating MRI recon-
+struction. Güngör et al. (2023) introduced the prior adaption operation
+in diffusion models for fast and reliable reconstructions.
+To further improve the reconstruction performance, Cao et al.
+(2024) proposed a high-frequency space diffusion model to improve
+Medical Image Analysis 100 (2025) 103398 
+2 
+J. Chu et al.
+the reconstruction stability. Cui et al. (2022) and Cao et al. (2022a)
+proposed a new paradigm by introducing the iterative self-consistent
+parallel imaging reconstruction (SPIRiT) (Lustig and Pauly, 2010)
+to the posterior sampling process. In the k-space domain, Tu et al.
+(2023) proposed a weighted k-space model for a robust and flexible
+reconstruction scheme. Peng et al. (2023) employed hankel-k-space
+in the generative model to achieve high-quality reconstruction with
+k-space data of one single subject.
+2.3. Implicit neural representation
+The concept of INR first emerged in the context of view synthesis in
+computer vision. Mildenhall et al. (2021) pioneered the utilization of a
+fully connected network to encode a 3D scene as a neural radiance field
+(NeRF). Researchers have explored the fusion of INR with various co-
+ordinate encoding functions, enabling the capturing of high-frequency
+image details, such as the Fourier feature map (Tancik et al., 2020),
+radial encoding (Liu et al., 2022), and hash encoding (Müller et al.,
+2022). Leveraging multilayer perceptron (MLP) and an appropriate
+encoding function that maps input coordinates to a high-dimensional
+space, INR has showcased remarkable efficacy across diverse computer
+vision tasks (Park et al., 2019; Saragadam et al., 2023; Lu et al., 2023).
+Previous work demonstrates INR’s notable capability in addressing
+inverse problems in medical image reconstruction (Feng et al., 2023;
+Wu et al., 2023; Reed et al., 2021; Xu et al., 2023). For MRI acceler-
+ation, Shen et al. (2022) proposed INR learning with prior embedding
+(NeRP) to get a high-quality result, while it is limited to the case
+where long-term longitudinal scanning is performed. Similarly, Feng
+et al. (2023) proposed an INR approach with sensitivity map estimation
+(IMJENSE) for parallel MRI. Although IMJENSE demonstrated rela-
+tively high acceleration rates compared to traditional methods, it faces
+limitations when dealing with highly under-sampled data due to a lack
+of comprehensive prior knowledge of the complex data distributions.
+3. Methodology
+3.1. Posterior sampling of diffusion models
+For a temporal diffusion sampling at timestep 𝑡, Eq. (3) can be
+written as:
+𝑥𝑡−1 = ar gmin
+𝑥𝑡
+− log 𝑝𝑡(𝑦|𝑥𝑡) − log 𝑝𝑡(𝑥𝑡)
+(4)
+In Eq. (4), the unconditional prior distribution 𝑝𝑡(𝑥𝑡) can be calculated
+by the pre-trained diffusion model. Although the measurement model
+𝑝𝑡(𝑦|𝑥𝑡) is theoretically difficult to present in the analytical formulation,
+the forward physical model from 𝑥0 to 𝑦can be explicitly represented as
+Eq. (1). To exploit the measurement model 𝑝𝑡(𝑦|𝑥0), we factorize 𝑝𝑡(𝑦|𝑥𝑡)
+as follows:
+𝑝𝑡(𝑦|𝑥𝑡) = ∫𝑝𝑡(𝑦|𝑥0)𝑝𝑡(𝑥0|𝑥𝑡)𝑑 𝑥0
+(5)
+where 𝑝𝑡(𝑥0|𝑥𝑡) estimates a clean image 𝑥0 based on noisy image 𝑥𝑡.
+Notably, our method has no constraints on the stochastic differential
+equation (SDE) in diffusion models, such as variance preserving (VP)
+SDE or variance exploding (VE) SDE. Here, we take the VP-SDE as an
+example. The predicted 𝑥0 based on the 𝑥𝑡can be written as:
+𝑥𝐷(𝑥𝑡) = 𝑥0|𝑡≈ (𝑥𝑡−
+√
+1 −̄𝛼𝑡𝑠𝜃(𝑥𝑡, 𝑡))∕
+√
+̄𝛼𝑡,
+(6)
+where 𝑥𝐷(⋅) denotes the denoising process to predict 𝑥0|𝑡, ̄𝛼𝑡is a pre-
+defined hyperparameter in the pre-trained VP diffusion model (while
+𝜎𝑡is the hyperparameter in the VE-SDE), 𝑠𝜃(𝑥𝑡, 𝑡) denotes the predicted
+noise level of timestep 𝑡and 𝜃is the well-trained parameters. The de-
+noising process of Eq. (6) is called Tweedie denoising and the formula
+is defined as the Tweedie formula in previous works (Efron, 2011; Kim
+et al., 2022). Based on Eq. (5) and Eq. (6), we can get:
+𝑝𝑡(𝑦|𝑥𝑡) ≈𝑝𝑡(𝑦|𝑥0|𝑡),
+(7)
+where 𝑥0|𝑡∶= E[𝑥0|𝑥𝑡] = E𝑥0∼𝑝(𝑥0|𝑥𝑡)[𝑥0]. We can rewrite the posterior
+sampling problem as
+𝑥𝑡−1 ≈ ar gmin
+𝑥𝑡
+− log 𝑝𝑡(𝑦|𝑥0|𝑡) − log 𝑝𝑡(𝑥𝑡).
+(8)
+Assuming noise 𝑒is i.i.d. zero mean, normal distributed with noise
+level 𝜎and uncorrelated additive, the 𝑝𝑡(𝑦|𝑥0|𝑡) becomes
+𝑝𝑡(𝑦|𝑥0|𝑡) =
+1
+√
+(2𝜋)𝑚𝜎2𝑚exp
+[
+−
+‖𝑦−𝐴(𝑥0|𝑡)‖2
+2
+2𝜎2
+]
+,
+(9)
+where 𝑚is the dimension of measurement data 𝑦. The optimization
+problem Eq. (8) can be expressed as:
+𝑥𝑡−1 = ar gmin
+𝑥𝑡
+[∥𝑦−𝐴(𝑥𝐷(𝑥𝑡)) ∥2
+2 +𝜆𝐻(𝑥𝑡)] ,
+(10)
+where 𝜆= 2𝜎2 is the penalty weight between the DC term and the
+diffusion generation term. 𝐻(⋅) presents the unconditional pre-trained
+diffusion model.
+3.2. Diffusion prior generation
+Based on the quadratic penalty approach (Courant et al., 1994),
+the problem in Eq. (10) can be split into two subproblems: (1) uncon-
+ditional diffusion prior generation based on the pre-trained 𝐻(⋅); (2)
+DC operation based on the MRI physical model. With a well-trained
+diffusion model, we can obtain the MRI prior distribution 𝐻(𝑥𝑡) in Eq.
+(10), which is formulated as:
+𝑥𝑡−1 = ar gmin
+𝑥𝑡
+𝐻(𝑥𝑡) = (1 + 1
+2 𝛽𝑡)𝑥𝑡+ 𝛽𝑡𝑠𝜃(𝑥𝑡, 𝑡) +
+√
+𝛽𝑡𝜖 ,
+(11)
+where 𝑥𝑡−1 denotes the unconditional prior diffusion image, 𝜖∈𝑁(0, 𝐼)
+and 𝛽𝑡are the pre-defined parameters.
+To build the relationship between the diffusion generative prior and
+the measurement model, we utilize the Tweedie formula in Eq. (6) to
+generate a prior image with reduced noise 𝑥0|𝑡−1 = 𝑥𝐷(𝑥𝑡−1). With 𝑥0|𝑡−1,
+the DC operation can be formulated as
+̂𝑥0|𝑡−1 = ar gmin
+𝑥
+‖𝑦−𝐴𝑥‖2
+2 + 𝜌‖𝑥0|𝑡−1 −𝑥‖2
+2,
+(12)
+where the first term is used for DC, 𝜌is a penalty factor and ̂𝑥0|𝑡−1
+denotes the result after DC refinement.
+3.3. INR guided posterior sampling
+To solve the DC problem in Eq. (12), currently there are two strate-
+gies, which are direct DC projection and diffusion posterior sampling
+(DPS). Score-MRI is a representative DC projection method that tries
+to directly project the noise image 𝑥𝑡−1 to the measurement space.
+However, there is a relatively large error in direct projection methods
+because of the inaccurate forward acquisition model between 𝑥𝑡−1 and
+𝑦, which makes projection-based methods easily getting to the local
+minimum and sensitive to the noise perturbations. Additionally, DPS
+has a high uncertainty due to insufficient DC constraint, which is also
+called the soft DC operation (Song et al., 2024). Thus, the limitations of
+current DC operators might lead to an unstable and biased estimation.
+In this study, we propose to use INR to guide the DC operation
+during posterior sampling with a two-stage learning strategy. The
+overview of proposed INR posterior sampling strategy is shown in
+Fig. 1. Specifically, INR learns the image 𝑥0|𝑡−1 to embed the prior infor-
+mation into the network. Then, we refine 𝑥0|𝑡−1 based on measurement
+data to ensure data fidelity. In this way, we are able to enhance the
+intermediate 𝑥𝑡−1 for DC through iterative refinement of the parameters
+within the INR network, rather than tuning the update step size in
+DPS. Leveraging the powerful representation capability of INR (Feng
+et al., 2023), we can achieve a highly faithful refinement result 𝑥0|𝑡−1
+for specific scanning protocols. Detailed explanations of the two-stage
+INR learning are outlined below.
+(1) Stage 1: Prior Embedding
+Medical Image Analysis 100 (2025) 103398 
+3 
+J. Chu et al.
+Fig. 1. Overview of the proposed DiffINR framework. (a) The reverse sampling process of DiffINR with iterative INR-based modules. The total number of reverse sampling steps
+is 𝑇. 𝑡∗indicates the INR start timestep and 𝑘denotes the INR interval. (b) INR-based posterior sampling for temporal diffusion prior. This process is divided into two stages: In
+Stage 1, the diffusion prior image is embedded into the INR as an initial weight for following Stage 2. In Stage 2, the INR combines the physical model with the acquired data,
+guaranteeing data fidelity.
+In Stage 1, we deploy an MLP to map the spatial coordinates to the
+corresponding signal intensities in the prior image 𝑥0|𝑡−1. The MLP is
+randomly initialized and optimized by the following loss function:
+𝜙𝑝𝑟= ar gmin
+𝜙
+‖‖‖𝑃𝜙(𝑑) −𝑥0|𝑡−1‖‖‖
+2
+2 ,
+(13)
+where 𝑃𝜙denotes the MLP network with parameters 𝜙and 𝑑denotes
+the spatial coordinates of the prior image. Following the prior embed-
+ding, the prior information of 𝑥0|𝑡−1 is integrated into the MLP net-
+work’s weights 𝜙𝑝𝑟, serving as the initial weights for the DC refinement
+in Stage 2.
+(2) Stage 2: Data Consistency Refinement
+In Stage 2, we initiate training with the prior-embedded MLP 𝑃𝜙𝑝𝑟.
+Given the prior embedded INR, we are capable of representing 𝑥0|𝑡−1 as
+𝑃𝜙𝑝𝑟(𝑑) with input coordinates 𝑑. During the DC refinement stage, our
+primary goal is to minimize the difference between 𝐴𝑃𝜙𝑝𝑟(𝑑) and 𝑦. The
+optimization objective can be formulated as:
+𝜙∗= ar gmin
+𝜙
+‖‖‖𝐴𝑃𝜙(𝑑) −𝑦‖‖‖1 ,
+(14)
+The network 𝑃𝜙is trained by an 𝐿1 loss, initializing the weights with
+those embedded from the prior image 𝜙𝑝𝑟. Finally, the output image
+can be reconstructed by inferring the spatial coordinates in the trained
+network, which is ̂𝑥0|𝑡−1 = 𝑃𝜙∗(𝑑).
+Incorporating both prior embedding and DC refinement, ̂𝑥0|𝑡−1 con-
+tains the prior distribution and maintains high fidelity to the data. To
+proceed the following posterior sampling steps, ̂𝑥0|𝑡−1 is remapped back
+to the diffusion model by adding proper noise:
+𝑥𝑡−1 =
+√
+̄𝛼𝑡−1 ̂𝑥0|𝑡−1 +
+√
+1 −̄𝛼𝑡−1𝜖𝑡−1,
+(15)
+where 𝜖𝑡−1 ∈𝑁(0, 𝐼) is the noise scale at timestep 𝑡− 1.
+The overall workflow of our method is presented in Algorithm 1,
+where the measurement 𝑦represents an under-sampled k-space map
+and the coordinate 𝑑is in the image space representing the coordinate
+of the reconstructed image 𝑥. The dimension of 𝑦is ℎ× 𝑤in single-
+channel reconstruction or ℎ× 𝑤× 𝑐in multi-channel reconstruction,
+where ℎ, 𝑤and 𝑐denote the height, width and number of channels
+of 2D MRI data. The dimension of the coordinate 𝑑is the same as the
+dimension of reconstructed image 𝑥, which is ℎ× 𝑤.
+Algorithm 1: INR Guided Posterior Sampling
+Input: Measurement 𝑦, pre-trained diffusion model 𝑠𝜃,
+pre-defined parameters 𝛽𝑡and ̄𝛼𝑡, the total number of
+sampling steps 𝑇, INR start timestep 𝑡∗, INR Interval 𝑘
+and image coordinate 𝑑.
+Output: 𝐱0
+1 𝑥𝑇∼𝑁(0, 𝐼);
+2 for 𝑡= 𝑇to 1 do
+// Diffusion prior generation
+3
+𝜖∈𝑁(0, 𝐼) if 𝑡 > 1, else 𝜖= 0.
+4
+𝑥𝑡−1 = (1 + 1
+2𝛽𝑡)𝑥𝑡+ 𝛽𝑡𝑠𝜃(𝑥𝑡, 𝑡) +
+√
+𝛽𝑡𝜖
+5
+𝑥0|𝑡−1 ≈ (𝑥𝑡−1 −
+√
+1 −̄𝛼𝑡−1𝑠𝜃(𝑥𝑡−1, 𝑡))∕
+√
+̄𝛼𝑡−1
+6
+if 𝑡 > 𝑡∗and [𝑡− 1 mod 𝑘] = 0 then
+// Stage 1: Prior Embedding
+7
+𝜙𝑝𝑟= ar gmin
+𝜙
+‖‖‖𝑃𝜙(𝑑) −𝑥0|𝑡−1‖‖‖
+2
+2
+// Stage 2: DC Refinement
+8
+𝜙∗= ar gmin
+𝜙
+‖‖‖𝐴𝑃𝜙(𝑑) −𝑦‖‖‖1
+9
+̂𝑥0|𝑡−1 = 𝑃𝜙∗(𝑑)
+10
+𝜖𝑡−1 ∈𝑁(0, 𝐼)
+11
+𝑥𝑡−1 =
+√
+̄𝛼𝑡−1 ̂𝑥0|𝑡−1 +
+√
+1 −̄𝛼𝑡−1𝜖𝑡−1
+12
+end
+13 end
+3.4. Implementation details
+We employ a pre-trained diffusion model as referenced in Chung
+and Ye (2022) to estimate the score value for each sampling step with-
+out retraining. The specific values for the parameters of the diffusion
+model are 𝜎𝑡=
+√
+1−𝛼𝑡
+𝛼𝑡
+= 𝜎𝑚𝑖𝑛
+( 𝜎𝑚𝑎𝑥
+𝜎𝑚𝑖𝑛
+)𝑡
+, where 𝜎𝑚𝑖𝑛= 0.01 and 𝜎𝑚𝑎𝑥= 378,
+and 𝜆= 1. Similar to the previous work in Song et al. (2024), we
+introduce the INR-based DC operation via a skipped-step mechanism
+at the start timestep 𝑡∗with an interval of 𝑘. In our experiments, the
+diffusion sampling process comprises a total number of 𝑇= 2000, with
+Medical Image Analysis 100 (2025) 103398 
+4 
+J. Chu et al.
+the INR commencing at timestep 𝑡∗= 1200 and an interval 𝑘= 50.
+Our INR architecture consists of a tiny MLP that includes one input
+layer, two hidden layers, and one output layer. Each of the hidden
+layers has 64 neurons, and all layers, except for the final one, utilize the
+ReLU activation function. Functionally, we deploy two separate MLPs
+to represent the real and imaginary components of the MRI images.
+We incorporate hash encoding to effectively represent the features of
+the input coordinates. The hyperparameters of our hash encoding are
+following the default parameters in Shi et al. (2022). In the prior
+embedding stage, the number of iterations (𝑁𝑝𝑟) is 250 and the learning
+rate is 1 × 10−3. In the DC refinement stage, the number of iterations
+is 250 and the learning rate is 1 × 10−5. All the hyperparameters are
+trained with the Adam optimizer (Kingma and Ba, 2014).
+All the experiments are implemented using PyTorch 1.11.0 in
+Python 3.7 on a workstation with an Intel i7-12700F processor, 32 GB
+RAM, and an NVIDIA GeForce RTX 3090GPU with 24 GB memory.
+Note that all hyper-parameters are tuned on five slices of two scans
+from the fastMRI knee dataset in one single-channel reconstruction task
+(Gaussian 1D R = 8, ACS = 12) and are maintained constantly across
+all other samples.
+4. Experiments and results
+4.1. Datasets
+(1) In-distribution Dataset
+Our in-distribution experiments were conducted using the fastMRI
+knee dataset (Knoll et al., 2020; Zbontar et al., 2018). We obtained
+all the fastMRI datasets from the NYU fastMRI Initiative database with
+approval from the New York University School of Medicine Institutional
+Review Board. The validation knee dataset contains 199 proton density
+(PD)/proton density fat suppression (PDFS) volumes. Specifically, the
+knee data was acquired using a 2D turbo spin-echo sequence with a ma-
+trix size of 320 × 320. For single-channel reconstruction, we randomly
+chose 40 slices from 15 volumes. For multi-channel (15 channels) coil
+reconstruction, we randomly chose 20 slices from 8 volumes.
+(2) Out-of-distribution Dataset
+To evaluate the generalizability of DiffINR, a subject’s knee was
+scanned using a 5.0T scanner (uMR Jupiter, United Image Health
+care, Shanghai, China) equipped with a 24-channel knee receiver coil.
+The experiment was approved by the Shanghai Jiao Tong University
+Human Ethics Committee and the informed consent was signed before
+scanning. We used a 2D fast spin echo (FSE) sequence to obtain T1
+weighted (T1w) images. The parameters are: matrix size = 896 × 896 × 26,
+voxel size = 0.18 × 0.18 × 3.3 mm3, TE = 8.92 ms, TR = 610 ms, flip angle
+= 110◦. We randomly selected 10 slices for quantitative analysis.
+To explore a more challenging scenario, we further conducted ex-
+periments on the fastMRI brain dataset. The brain data was scanned
+using a fluid-attenuated inversion recovery (FLAIR) sequence with 16
+channels. We randomly selected 20 brain slices from 5 volumes for
+evaluation.
+Our data preprocessing and the generation of under-sampling masks
+followed the methodology described in Chung and Ye (2022). All data
+were initially scaled and cropped to a size of 320 × 320 to align with the
+pre-trained diffusion model, ensuring optimal reconstruction results.
+Our experiments primarily employed two types of masks: 1D and 2D.
+The 1D mask samples in a strip format, with full sampling in the central
+region, known as the auto-calibration signal (ACS) region, and under-
+sampling in the remaining areas according to the acceleration factor
+and specific sampling function. The 2D sampling pattern is depicted as
+a dot matrix, where the sampling procedure spans the entire k-space
+based on the acceleration factor and distribution function.
+4.2. Performance evaluation
+DiffINR was compared with the following previous algorithms: (1)
+scan-specific methods P-LORAKS (Haldar and Zhuo, 2016; Kim and
+Haldar, 2018), and IMJENSE (Feng et al., 2023), (2) supervised DL
+methods MoDL (Aggarwal et al., 2018) and ReconFormer (Guo et al.,
+2024), and (3) diffusion-based methods Score-MRI (Chung and Ye,
+2022), and DPS (Chung et al., 2023a). Specifically, P-LORAKS is a
+conventional calibration-less method. IMJENSE is a scan-specific INR-
+based method. ReconFormer is an end-to-end DL method for single-
+channel MRI data reconstruction. MoDL is a supervised model-based
+method for multi-channel reconstruction. The two supervised DL meth-
+ods were retrained using the fastMRI single-channel and multi-channel
+datasets, respectively. Specifically, we used randomly selected 8000
+slices from 400 scans in the fastMRI knee dataset for training. We
+trained specific models under each undersampling pattern for the su-
+pervised methods. The diffusion-based methods compared in our study
+are all posterior sampling methods. For a fair comparison, we used
+the pre-trained diffusion model provided by Chung and Ye (2022) to
+estimate the scores for all the posterior sampling methods and used
+pre-estimated sensitivity maps via ESPIRiT (Uecker et al., 2014) for
+all the multi-channel reconstruction tasks. The inputs for P-LORAKS
+are under-sampled k-space images and the inputs of IMJENSE are the
+spatial coordinates of the image. The inputs are under-sampled MRI
+slices for both the supervised and diffusion-based methods. We com-
+puted peak signal-to-noise ratio (PSNR) and structural similarity index
+measure (SSIM) for quantitative evaluation. Moreover, we calculated
+uncertainty maps for diffusion-based posterior sampling methods to
+evaluate their stability.
+To demonstrate the superiority of our method, we conducted six
+experiments. (1) We tested the performance of DiffINR and com-
+pared methods on the single-channel and multi-channel fastMRI knee
+datasets. (2) To demonstrate the generalizability of DiffINR, OOD
+datasets with various acquisition parameters and tissue structures were
+tested. (3) To verify the stability of our INR-based posterior sampler,
+we calculated the uncertainty of diffusion-based methods and assessed
+their reconstruction performance in noisy conditions. (4) We designed
+ablation studies to illustrate the effectiveness of selected hyperparame-
+ters. (5) To illustrate the superiority of the INR-based posterior sampler,
+we compared the performance of DIP and INR for guided diffusion
+posterior sampling with acceleration ratios ranging from R = 2 to R
+= 8. (6) Taking inference time into consideration, we tested diffusion-
+based methods with decreasing sampling steps, assessing the trade-off
+between inference time and reconstruction quality.
+4.3. Comparison results of in-distribution datasets
+(1) Single-channel Reconstruction Results
+Fig. 2 displays the reconstructed images of sub-sampled single-
+channel data. P-LORAKS and IMJENSE both fail when reconstructing
+images under such high acceleration rates (R = 8 and R = 12). All
+diffusion-based methods are capable of reconstructing images with
+relatively less artifacts, which underscores the powerful generative
+capabilities of diffusion models. However, as the acceleration factor
+increases, Score-MRI and DPS start to generate discrepancies with the
+ground truths, as highlighted by red arrows in Fig. 2. For example,
+in Fig. 2(b), Score-MRI generates some unreal structures and DPS
+displays a noticeable discontinuity artifact that is absent in the fully
+sampled data. Visually, DiffINR generates more precise structural de-
+tails among diffusion models and achieves the highest PSNR and SSIM.
+While the ReconFormer performs well across all sampling patterns,
+it should be noted that it requires training a distinct model for each
+specific sampling pattern with paired data to maintain such high-
+quality reconstructions. In contrast to the supervised ReconFormer, our
+method delivers superior or comparable performance without the need
+for pre-training on any under-sampling conditions. Furthermore, we
+Medical Image Analysis 100 (2025) 103398 
+5 
+J. Chu et al.
+Fig. 2. Comparisons of different methods on the single-channel knee dataset. (a) and (b) are reconstruction results of Random 1D sampling with R = 8 (ACS = 12) and R = 12
+(ACS = 12), respectively. (c) are the results of 1/2 Partial Fourier under-sampling. (d) Gaussian 2D results at R = 15. Red arrows point to the artifacts on the magnitude images
+reconstructed by Score-MRI and DPS. SSIM and PSNR are reported and the best results are in bold and yellow. The ×5 error maps are displayed.
+Table 1
+Quantitative metrics of single-channel and multi-channel study. Numbers are presented as mean value ±unit standard deviation. The best results are highlighted in bold.
+P-LORAKS
+IMJENSE
+ReconFormer
+Score-MRI
+DPS
+DiffINR
+Single-channel
+Random 1D
+SSIM
+0.5565 ± 0.0317
+0.5476 ± 0.0320
+0.7099 ± 0.0438
+0.6598 ± 0.0378
+0.6845 ± 0.0384
+0.7068 ± 0.0452
+×8
+PSNR
+17.427 ± 1.171
+19.445 ± 1.097
+27.729 ± 1.643
+26.476 ± 1.392
+26.986 ± 1.597
+28.967 ± 1.668
+Random 1D
+SSIM
+0.4844 ± 0.0405
+0.5150 ± 0.0372
+0.6377 ± 0.0482
+0.5668 ± 0.0425
+0.6035 ± 0.0473
+0.6505 ± 0.0518
+×12
+PSNR
+16.709 ± 1.406
+17.667 ± 0.993
+25.290 ± 1.780
+24.081 ± 1.652
+23.820 ± 1.891
+26.137 ± 1.877
+Partial Fourier
+SSIM
+0.1884 ± 0.0416
+0.2012 ± 0.1076
+0.5901 ± 0.0350
+0.5594 ± 0.0435
+0.5810 ± 0.057
+0.5995 ± 0.0705
+1/2 (×4)
+PSNR
+13.850 ± 1.262
+12.540 ± 2.455
+23.990 ± 1.251
+22.924 ± 2.472
+23.967 ± 2.644
+25.172 ± 3.205
+Gaussian 2D
+SSIM
+0.4209 ± 0.0214
+0.4260 ± 0.0266
+0.6893 ± 0.0501
+0.6480 ± 0.0370
+0.6571 ± 0.0536
+0.6842 ± 0.0463
+×15
+PSNR
+14.628 ± 0.807
+14.251 ± 2.577
+28.002 ± 1.333
+27.423 ± 1.697
+27.675 ± 2.072
+28.519 ± 1.121
+P-LORAKS
+IMJENSE
+MoDL
+Score-MRI
+DPS
+DiffINR
+Multi-channel
+Random 1D
+SSIM
+0.7054 ± 0.0862
+0.7601 ± 0.0591
+0.8411 ± 0.0275
+0.8303 ± 0.0170
+0.8253 ± 0.0196
+0.8690 ± 0.0194
+×8
+PSNR
+23.021 ± 3.083
+23.748 ± 3.014
+30.932 ± 2.401
+29.105 ± 2.249
+29.776 ± 2.924
+32.984 ± 1.522
+Poisson 2D
+SSIM
+0.5829 ± 0.0850
+0.7190 ± 0.0762
+0.8797 ± 0.0155
+0.8309 ± 0.0286
+0.8215 ± 0.0210
+0.8463 ± 0.0303
+×18
+PSNR
+24.124 ± 2.830
+22.273 ± 3.339
+31.901 ± 2.164
+29.081 ± 2.524
+29.416 ± 2.946
+31.393 ± 1.488
+Table 2
+Quantitative metrics of OOD study. Numbers are presented as mean value ±unit standard deviation. The best results are highlighted in bold.
+P-LORAKS
+IMJENSE
+ReconFormer
+Score-MRI
+DPS
+DiffINR
+OOD
+T1w knee
+SSIM
+0.6921 ± 0.0202
+0.7086 ± 0.0173
+0.7445 ± 0.0247
+0.7815 ± 0.0287
+0.7960 ± 0.0310
+0.8164 ± 0.0226
+PSNR
+25.010 ± 1.633
+26.794 ± 1.772
+27.512 ± 1.608
+27.446 ± 1.079
+27.728 ± 1.133
+29.411 ± 1.005
+FastMRI brain
+SSIM
+0.8979 ± 0.0299
+0.8656 ± 0.0192
+0.9029 ± 0.0095
+0.9317 ± 0.0082
+0.9248 ± 0.0107
+0.9387 ± 0.0071
+PSNR
+24.370 ± 2.130
+26.873 ± 2.314
+24.455 ± 2.913
+29.530 ± 0.900
+30.206 ± 1.276
+33.189 ± 1.018
+Medical Image Analysis 100 (2025) 103398 
+6 
+J. Chu et al.
+Fig. 3. Comparison of different methods on the multi-channel fastMRI knee dataset with different acceleration factors and sampling masks. (a) is the reconstruction result under
+Random 1D sampling masks with R = 8 (ACS = 12). (b) is the result of Poisson 2D with R = 18. Quantitative evaluation metrics (SSIM and PSNR) are reported and the best
+results are emphasized in bold and yellow. The ×10 error maps are displayed.
+Fig. 4. Comparison results of different methods on (a) T1w knee data. (b) fastMRI brain FLAIR data at Random 1D R = 6 (ACS = 18), respectively. Quantitative evaluation metrics
+(SSIM and PSNR) are reported and the best results are emphasized in bold and yellow. The ×10 error maps are displayed.
+conducted experiments on various k-space sampling masks, as shown
+in Fig. 2(c) and (d), to verify the superiority of our methods under
+different sampling patterns. As expected, DiffINR yielded the lowest
+errors, the highest PSNR and SSIM across all experiments, with a
+PSNR that was approximately 2 dB higher than current diffusion-based
+methods. Table 1 reports the quantitative evaluation metrics derived
+from 40 slices from 15 subjects.
+(2) Multi-channel Reconstruction Results
+We also compared the methods on multi-channel datasets to assess
+the general application performance. Fig. 3 displays the results under
+(a) 1D and (b) 2D under-sampling conditions. P-LORAKS and IM-
+JENSE exhibit severe aliasing artifacts under 1D sampling, as shown in
+Fig. 3(a). Similarly, MoDL also fails to effectively remove the artifacts at
+1D high under-sampling pattern. In contrast, diffusion-based methods
+are successful in reconstructing artifact-free images due to their strong
+generative capabilities. When compared to Score-MRI and DPS, our
+method yields more accurate high-frequency details and better recon-
+struction quality, as illustrated by the zoomed-in images. In Fig. 3(b),
+the result of our method shows a performance level that is on par
+with MoDL’s result. The quantitative results of multi-channel data are
+summarized in Table 1. It should be noted that at such high acceleration
+factors, DiffINR demonstrates remarkable robustness by maintaining a
+PSNR of 30 dB or higher.
+4.4. Comparison results of out-of-distribution datasets
+In Chung and Ye (2022), the authors demonstrated the strong
+generalizability of diffusion models in MRI reconstructions. However,
+they noted that reconstructions often displayed artifacts under OOD
+conditions. These artifacts may arise from insufficient DC refinement,
+which limits the generalizability of diffusion models. To assess the
+performance of our INR-based posterior sampler under OOD conditions,
+we applied our method to T1w images of human knee acquired at
+5T and brain FLAIR images from the fastMRI dataset. Fig. 4 and
+Table 2 present the qualitative and quantitative OOD results by dif-
+ferent methods at a Random 1D accelerated factor of R = 6 with
+18 ACS lines. At this acceleration rate, both P-LORAKS and IMJENSE
+struggled to achieve high-quality reconstructions. The performance of
+the supervised method, MoDL, significantly deteriorated, particularly
+in brain reconstruction, as shown in Fig. 4(b). This decline can be
+attributed to the limited generalizability of supervised DL methods (Lin
+et al., 2021; Sandino et al., 2020). In contrast, diffusion-based methods
+outperformed the supervised method in fastMRI brain data, which is
+notably different from the original training dataset of knee images.
+Overall, our INR-based posterior sampler demonstrates considerable
+advantages in OOD scenarios compared to other sampling methods.
+Medical Image Analysis 100 (2025) 103398 
+7 
+J. Chu et al.
+Fig. 5. Uncertainty maps and averaged reconstruction images with increasing acceler-
+ation factors R = 2 (a) and R = 6 (b).
+Fig. 6. Qualitative and quantitative results of different methods with different noise
+levels (a) SNR = 40 dB and (b) SNR = 32 dB. SSIM and PSNR are reported and the
+best results are highlighted in bold and yellow. The ×5 error maps are displayed. Red
+arrows point to the artifacts in the results.
+4.5. Stability evaluation for reconstruction results
+(1) Uncertainty Quantification
+Due to the inherent stochasticity in the diffusion model generation
+process, the reconstruction results may contain intrinsic biases. To
+assess the reliability and precision of our method in clinical settings, we
+quantified the uncertainties associated with diffusion-based methods
+at different acceleration rates using single-channel data. We generated
+uncertainty maps by calculating the variance of multiple parallel re-
+constructions, following the approach outlined in Chung and Ye (2022).
+Specifically, we calculated the mean values and the pixel-wise standard
+deviations from eight concurrent generative reconstructions. Fig. 5
+displays the uncertainty variations of diffusion-based methods as the
+acceleration rates increase. From R = 2 to R = 6, there was a notable
+rise in uncertainty values for Score-MRI and DPS, with the DPS method
+exhibiting a larger variance. In comparison, our method maintained the
+lowest uncertainty, even under conditions of high under-sampling rates.
+(2) Noisy Reconstruction
+To assess the susceptibility to noise of diffusion-based methods, we
+introduced varying levels of additive white Gaussian noise into the
+real and imaginary components of under-sampled k-space data, yielding
+images with SNR of 32 dB and 40 dB, respectively. As shown in Fig. 6(a)
+and (b), Score-MRI and DPS exhibit deviations in the details of tissue
+edge compared to the ground truth image. However, these structural er-
+rors and artifacts are significantly reduced in DiffINR’s reconstructions,
+indicating that our method has superior noise resilience compared to
+other posterior sampling methods.
+4.6. Effectiveness of the hyperparameters
+(1) INR Interval (𝑘)
+The parameter 𝑘determines the frequency of the DC operation. If
+the interval is set too small, the inference time will increase propor-
+tionally. Conversely, if the interval is set too large, the number of DC
+operations will decrease, which can result in an increased DC loss. We
+tested six representative 𝑘values (10, 25, 50, 75, 100, 200) on the
+single-channel knee dataset with 1D Gaussian sampling (R = 8, ACS
+= 12). Fig. 7(a) displays the visual results of different 𝑘values. In
+Fig. 7(b), we observed that SSIM and PSNR drop dramatically when
+𝑘 > 50. Therefore, we empirically chose 𝑘= 50 as the optimal trade-off
+between inference time and image quality.
+(2) INR Start Timestep (𝑡∗)
+In our experiments, we observed that our INR does not yield uni-
+form effects at each time step. This phenomenon aligns with previous
+studies referenced in Song et al. (2024), Yu et al. (2023). During
+the early stages of diffusion sampling, the prior image 𝑥0|𝑡contains
+substantial noise and does not offer sufficient distribution information
+for the INR. To address this, instead of introducing the INR at the
+very beginning of the sampling process, we set a start timestep 𝑡∗. This
+strategy not only shortens inference time but also ensures a reasonably
+high level of DC loss for INR prior guidance (Güngör et al., 2023). In
+Fig. 8(a), we presented the quantification results of a single sample with
+different 𝑡∗, with 𝑘= 50 and 𝑇= 2000. From the curve in Fig. 8(a), we
+observed that there is no significant variation in the performance of
+DiffINR when 𝑡∗> 1200, but a notable decrease when 𝑡∗< 1200. Thus,
+we selected 𝑡∗= 1200 as INR start timestep in all our experiments.
+(3) Number of Prior Embedding Steps (𝑁𝑝𝑟)
+In Fig. 8(b), we assessed the effectiveness of 𝑁𝑝𝑟by learning an
+intermediate diffusion prior image at 𝑡= 300. Given the tendency of
+INR to overfit, the basic idea of selecting 𝑁𝑝𝑟is as large as possible
+to guarantee the similarity between the diffusion prior image and the
+INR output image. In Fig. 8(b), after 250 epochs, DiffINR fully captured
+the prior information generated by the diffusion model. The PSNR and
+SSIM values in Fig. 8(b) were calculated between the diffusion prior
+image and the INR output.
+4.7. Comparison of DIP and INR as posterior samplers
+Similar to INR, DIP is also an unsupervised DL method designed for
+scan-specific reconstructions. However, rather than using input coor-
+dinates, DIP takes a random vector as input and employs an untrained
+network to capture image statistics relevant to inverse problems. Pre-
+vious studies have demonstrated its great performance in accelerated
+MRI reconstruction (Cui et al., 2023; Darestani and Heckel, 2021).
+To demonstrate the superiority of the INR as a posterior sampler, we
+conducted a comparative analysis between INR and DIP on a single-
+channel reconstruction task. Technically, we implemented the DIP
+Medical Image Analysis 100 (2025) 103398 
+8 
+J. Chu et al.
+Fig. 7. Visualization (a) and quantification (b) results of hyperparameters tuning for INR interval (𝑘).
+Fig. 8. The quantification variation curve of (a) INR start timestep (𝑡∗) and (b) INR prior embedding steps (𝑁𝑝𝑟).
+Fig. 9. The performances of DiffDIP and DiffINR under acceleration factors from R = 2 to R = 8. The variations of SSIM and PSNR are displayed in (b). (c) SSIM and PSNR are
+reported below each image. The ×10 error maps are displayed.
+structure proposed in Darestani and Heckel (2021) as the posterior
+sampler for DiffDIP. We tested four under-sampling rates (R = 2, 4, 6, 8)
+with a 1D Gaussian sampling pattern. In Fig. 9(b), DiffDIP experiences
+a pronounced decline in performance compared to DiffINR as acceler-
+ation rates increase. Fig. 9(c) shows a qualitative comparison between
+DiffDIP and DiffINR. Visually, DiffINR is capable of reconstructing finer
+structures, whereas DiffDIP tends to generate smoother results. This
+capability of INR to represent high-frequency can be attributed to the
+hash encoding operation (Müller et al., 2022). Beyond its excellent
+reconstruction performance, the total DC operation time for the DIP
+posterior sampler (about 93 s) is considerably longer than INR (about
+4 s), approximately 23 times longer.
+4.8. Computational efficiency
+To evaluate the computational efficiency, we have provided the
+actual training and inference time, multiply-accumulate operations
+(MACs), and memory usage for each method in Table 3. Specifically,
+we assessed the inference time and memory usage based on a single-
+channel reconstruction task with a Random 1D R = 8 (ACS = 12)
+sampling mask. Memory usage was measured with the command nvidia-
+smi. As shown in Table 3, the training time for unsupervised methods
+is significantly lower than that of other approaches. However, the
+final reconstruction results of these unsupervised methods tend to be
+suboptimal. Additionally, the MACs values of deep learning methods
+Medical Image Analysis 100 (2025) 103398 
+9 
+J. Chu et al.
+Table 3
+Training and inference time, computational cost, and memory usage of different methods for a Random 1D
+R = 8 (ACS = 12) reconstruction task.
+Method
+Training time
+(min)
+Inference time
+(min)
+MACs (G)
+Memory usage (M)
+P-LORAK
+1.12
+1.12
+60.18
+1352 (CPU)
+IMJENSE
+1.51
+1.51
+40.34
+5498 (GPU)
+MoDL
+(Supervised)
+1326.30
+0.14
+58.33
+828 (GPU)
+ReconFormer
+(Supervised)
+2719.70
+0.16
+270.61
+18178 (GPU)
+Score-MRI
+10.21
+1053.12
+5490 (GPU)
+DPS
+Not available
+10.50
+1057.12
+5541 (GPU)
+DiffINR
+(Proposed)
+11.43
+1083.45
+5864 (GPU)
+Fig. 10. The changes of PSNR and SSIM in DiffINR, Score-MRI, DPS with reducing
+reverse sampling steps from 𝑇= 2000 to 𝑇= 50. Visual results are displayed at 𝑇= 250.
+are generally high, particularly for diffusion models, indicating sub-
+stantial computational demands. Nonetheless, diffusion-based methods
+demonstrate more efficient memory usage compared to IMJENSE and
+Reconformer. Recent advancements in hardware technology may help
+alleviate these computational constraints. It is important to note that
+all parameter calculations were performed on a single NVIDIA GeForce
+RTX 3090 GPU for the reconstruction of one sample. In future clinical
+applications, utilizing multiple GPUs and customized hardware could
+further accelerate the reconstruction process.
+Compared to other methods in Table 3, diffusion-based methods
+generally have longer inference time due to the intrinsic characteristics
+of score-based diffusion sampling. Previous studies suggest one straight-
+forward approach to reduce inference time: reducing the number of
+reverse sampling steps (𝑇) (Xie and Li, 2022). When reducing 𝑇, we
+adjusted the values of 𝑡∗and 𝑘to maintain a total of 24 INR operations
+(e.g., 𝑡∗= 600, 𝑘= 25 for 𝑇= 1000). As shown in Fig. 10, Score-MRI
+and DPS incur a substantial decline in performance when 𝑇≤250
+and completely fail when 𝑇
+= 50. In contrast, DiffINR persists in
+generating high-quality images even when 𝑇= 50. This suggests that
+DiffINR can reduce inference time by approximately 20 ∼ 40 times
+while maintaining superior performance, demonstrating its potential
+for accelerating the posterior sampling process of diffusion models.
+Other methods (Huang et al., 2023), such as denoising diffusion im-
+plicit models (DDIM) (Song et al., 2020) and come-closer-diffuse-faster
+(CCDF) (Chung et al., 2022b), could also be explored to reduce infer-
+ence times. The potential of INR in speeding up diffusion sampling will
+be a future study. Our ultimate goal is to quickly produce high-precision
+images with minimal uncertainty and finally enhance their utility in
+clinical settings.
+5. Conclusion
+In this study, we proposed DiffINR, an INR-based diffusion posterior
+sampler for highly accelerated MRI reconstruction. We introduced a
+pre-trained diffusion model to generate noiseless prior images, allowing
+the INR to learn high-quality distribution information. By incorporating
+the physical model into the INR, robust DC is realized. Through itera-
+tive INR procedures, the diffusion model produces highly accurate and
+stable reconstruction results. Experimental results on in-distribution
+and OOD datasets show that DiffINR outperforms the compared meth-
+ods. The results from OOD datasets and uncertainty quantification
+further demonstrate DiffINR’s strong generalizability and stability. Ad-
+ditionally, this posterior sampler is training-free and is not limited
+by the specific diffusion model, facilitating its integration with other
+pre-trained diffusion models for task-specific reconstruction. In sum-
+mary, DiffINR delivers high accuracy, excellent generalizability, and
+stability, positioning it a promising solution for highly accelerated MRI
+reconstruction.
+CRediT authorship contribution statement
+Jiayue Chu: Writing – review & editing, Writing – original draft,
+Software, Methodology, Investigation, Data curation, Conceptualiza-
+tion. Chenhe Du: Writing – review & editing, Methodology, Investiga-
+tion. Xiyue Lin: Visualization, Methodology. Xiaoqun Zhang: Method-
+ology, Formal analysis. Lihui Wang: Writing – review & editing, Super-
+vision. Yuyao Zhang: Writing – review & editing, Supervision, Method-
+ology, Funding acquisition, Formal analysis. Hongjiang Wei: Writing
+– review & editing, Writing – original draft, Supervision, Resources,
+Methodology, Funding acquisition, Conceptualization.
+Declaration of competing interest
+The authors declare that they have no known competing finan-
+cial interests or personal relationships that could have appeared to
+influence the work reported in this paper.
+Acknowledgments
+This study was supported by the National Natural Science Foun-
+dation of China (62471296, 62071299,61901256), Shanghai Science
+and Technology Development Funds, China under 23TS1400200, SJTU
+Trans-med Awards Research (STAR 20220103, YG2023LC02).
+Data availability
+We obtained all the fastMRI datasets from the NYU fastMRI Initia-
+tive database with approval from the New York University School of
+Medicine Institutional Review Board.
+Medical Image Analysis 100 (2025) 103398 
+10 
+J. Chu et al.
+References
+Aggarwal, H.K., Mani, M.P., Jacob, M., 2018. MoDL: Model-based deep learning
+architecture for inverse problems. IEEE Trans. Med. Imaging 38 (2), 394–405.
+Cao, C., Cui, Z.-X., Cheng, J., Jia, S., Zheng, H., Liang, D., Zhu, Y., 2022a. SPIRiT-
+diffusion: SPIRiT-driven score-based generative modeling for vessel wall imaging.
+arXiv preprint arXiv:2212.11274.
+Cao, C., Cui, Z.-X., Wang, Y., Liu, S., Chen, T., Zheng, H., Liang, D., Zhu, Y., 2024. High-
+frequency space diffusion model for accelerated mri. IEEE Trans. Med. Imaging 43
+(5), 1853–1865.
+Cao, Y., Wang, L., Zhang, J., Xia, H., Yang, F., Zhu, Y., 2022b. Accelerating multi-
+echo MRI in k-space with complex-valued diffusion probabilistic model. In: 2022
+16th IEEE International Conference on Signal Processing. ICSP, Vol. 1, IEEE, pp.
+479–484.
+Chung, H., Kim, J., Mccann, M.T., Klasky, M.L., Ye, J.C., 2023a. Diffusion posterior
+sampling for general noisy inverse problems. In: International Conference on
+Learning Representations.
+Chung, H., Lee, S., Ye, J.C., 2023b. Decomposed diffusion sampler for accelerating
+large-scale inverse problems. arXiv preprint arXiv:2303.05754.
+Chung, H., Sim, B., Ryu, D., Ye, J.C., 2022a. Improving diffusion models for in-
+verse problems using manifold constraints. Adv. Neural Inf. Process. Syst. 35,
+25683–25696.
+Chung, H., Sim, B., Ye, J.C., 2022b. Come-closer-diffuse-faster: Accelerating conditional
+diffusion models for inverse problems through stochastic contraction. In: Proceed-
+ings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp.
+12413–12422.
+Chung, H., Ye, J.C., 2022. Score-based diffusion models for accelerated MRI. Med.
+Image Anal. 80, 102479.
+Courant, R., et al., 1994. Variational methods for the solution of problems of
+equilibrium and vibrations. Lect. Notes Pure Appl. Math. 1.
+Cui, Z.-X., Cao, C., Liu, S., Zhu, Q., Cheng, J., Wang, H., Zhu, Y., Liang, D., 2022.
+Self-score: Self-supervised learning on score-based models for mri reconstruction.
+arXiv preprint arXiv:2209.00835.
+Cui, Z.-X., Jia, S., Cao, C., Zhu, Q., Liu, C., Qiu, Z., Liu, Y., Cheng, J., Wang, H., Zhu, Y.,
+Liang, D., 2023. K-UNN: k-space interpolation with untrained neural network. Med.
+Image Anal. 88, 102877.
+Darestani, M.Z., Heckel, R., 2021. Accelerated MRI with un-trained neural networks.
+IEEE Trans. Comput. Imaging 7, 724–733.
+Doneva, M., Börnert, P., Eggers, H., Stehning, C., Sénégas, J., Mertins, A., 2010.
+Compressed sensing reconstruction for magnetic resonance parameter mapping.
+Magn. Reson. Med. 64 (4), 1114–1120.
+Efron, B., 2011. Tweedie’s formula and selection bias. J. Amer. Statist. Assoc. 106
+(496), 1602–1614.
+Feng, R., Wu, Q., Feng, J., She, H., Liu, C., Zhang, Y., Wei, H., 2023. IMJENSE: scan-
+specific implicit representation for joint coil sensitivity and image estimation in
+parallel MRI. IEEE Trans. Med. Imaging 43 (4), 1539–1553.
+Gu, H., Yaman, B., Ugurbil, K., Moeller, S., Akçakaya, M., 2021. Compressed sensing
+MRI with l1-wavelet reconstruction revisited using modern data science tools. In:
+2021 43rd Annual International Conference of the IEEE Engineering in Medicine
+& Biology Society. EMBC, IEEE, pp. 3596–3600.
+Güngör, A., Dar, S.U., Öztürk, Ş., Korkmaz, Y., Bedel, H.A., Elmas, G., Ozbey, M.,
+Çukur, T., 2023. Adaptive diffusion priors for accelerated MRI reconstruction. Med.
+Image Anal. 88, 102872.
+Guo, P., Mei, Y., Zhou, J., Jiang, S., Patel, V.M., 2024. ReconFormer: Accelerated
+MRI reconstruction using recurrent transformer. IEEE Trans. Med. Imaging 43 (1),
+582–593.
+Haldar, J.P., Zhuo, J., 2016. P-LORAKS: low-rank modeling of local k-space
+neighborhoods with parallel imaging data. Magn. Reson. Med. 75 (4), 1499–1514.
+Hammernik, K., Klatzer, T., Kobler, E., Recht, M.P., Sodickson, D.K., Pock, T., Knoll, F.,
+2018. Learning a variational network for reconstruction of accelerated MRI data.
+Magn. Reson. Med. 79 (6), 3055–3071.
+Huang, J., Aviles-Rivero, A.I., Schönlieb, C.-B., Yang, G., 2023. Cdiffmr: Can we replace
+the gaussian noise with k-space undersampling for fast MRI? In: International
+Conference on Medical Image Computing and Computer-Assisted Intervention.
+Springer, pp. 3–12.
+Jalal, A., Arvinte, M., Daras, G., Price, E., Dimakis, A.G., Tamir, J., 2021. Robust
+compressed sensing mri with deep generative priors. Adv. Neural Inf. Process. Syst.
+34, 14938–14954.
+Jiang, W., Xiong, Z., Liu, F., Ye, N., Sun, H., 2024. Fast controllable diffusion models
+for undersampled MRI reconstruction. In: 2024 IEEE International Symposium on
+Biomedical Imaging. ISBI, pp. 1–5.
+Jin, K.H., Lee, D., Ye, J.C., 2016. A general framework for compressed sensing and
+parallel MRI using annihilating filter based low-rank Hankel matrix. IEEE Trans.
+Comput. Imaging 2 (4), 480–495.
+Jin, K.H., McCann, M.T., Froustey, E., Unser, M., 2017. Deep convolutional neural
+network for inverse problems in imaging. IEEE Trans. Image Process. 26 (9),
+4509–4522.
+Kim, T., Haldar, J., 2018. LORAKS software version 2.0: Faster implementation and
+enhanced capabilities. Tech. Rep. USC-SIPI-443, University of Southern California,
+Los Angeles, CA.
+Kim, K., Kwon, T., Ye, J.C., 2022. Noise distribution adaptive self-supervised image
+denoising using tweedie distribution and score matching. In: Proceedings of the
+IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 2008–2016.
+Kingma, D.P., Ba, J., 2014. Adam: A method for stochastic optimization. arXiv preprint
+arXiv:1412.6980.
+Knoll, F., Zbontar, J., Sriram, A., Muckley, M.J., Bruno, M., Defazio, A., Parente, M.,
+Geras, K.J., Katsnelson, J., Chandarana, H., et al., 2020. fastMRI: A publicly
+available raw k-space and DICOM dataset of knee images for accelerated MR image
+reconstruction using machine learning. Radiol.: Artif. Intell. 2 (1), e190007.
+Korkmaz, Y., Cukur, T., Patel, V.M., 2023. Self-supervised MRI reconstruction with un-
+rolled diffusion models. In: International Conference on Medical Image Computing
+and Computer-Assisted Intervention. Springer, pp. 491–501.
+Lin, D.J., Johnson, P.M., Knoll, F., Lui, Y.W., 2021. Artificial intelligence for MR
+image reconstruction: an overview for clinicians. J. Magn. Reson. Imaging 53 (4),
+1015–1028.
+Lingala, S.G., Hu, Y., DiBella, E., Jacob, M., 2011. Accelerated dynamic MRI exploiting
+sparsity and low-rank structure: kt SLR. IEEE Trans. Med. Imaging 30 (5),
+1042–1054.
+Liu, R., Sun, Y., Zhu, J., Tian, L., Kamilov, U.S., 2022. Recovery of continuous 3d
+refractive index maps from discrete intensity-only measurements using neural fields.
+Nat. Mach. Intell. 4 (9), 781–791.
+Lu, Y., Wang, Z., Liu, M., Wang, H., Wang, L., 2023. Learning spatial-temporal implicit
+neural representations for event-guided video super-resolution. In: Proceedings
+of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp.
+1557–1567.
+Luo, G., Blumenthal, M., Heide, M., Uecker, M., 2023. Bayesian MRI reconstruction
+with joint uncertainty estimation using diffusion models. Magn. Reson. Med. 90
+(1), 295–311.
+Lustig, M., Donoho, D., Pauly, J.M., 2007. Sparse MRI: The application of compressed
+sensing for rapid mr imaging. Magn. Resonance Med.: Off. J. Int. Soc. Magn. Reson.
+Med. 58 (6), 1182–1195.
+Lustig, M., Pauly, J.M., 2010. SPIRiT: iterative self-consistent parallel imaging
+reconstruction from arbitrary k-space. Magn. Reson. Med. 64 (2), 457–471.
+Mildenhall, B., Srinivasan, P.P., Tancik, M., Barron, J.T., Ramamoorthi, R., Ng, R., 2021.
+Nerf: Representing scenes as neural radiance fields for view synthesis. Commun.
+ACM 65 (1), 99–106.
+Müller, T., Evans, A., Schied, C., Keller, A., 2022. Instant neural graphics primitives
+with a multiresolution hash encoding. ACM Trans. Graph. 41 (4), 1–15.
+Ongie, G., Jalal, A., Metzler, C.A., Baraniuk, R.G., Dimakis, A.G., Willett, R., 2020.
+Deep learning techniques for inverse problems in imaging. IEEE J. Selected Areas
+Inf. Theory 1 (1), 39–56.
+Park, J.J., Florence, P., Straub, J., Newcombe, R., Lovegrove, S., 2019. Deepsdf: Learn-
+ing continuous signed distance functions for shape representation. In: Proceedings
+of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp.
+165–174.
+Peng, C., Guo, P., Zhou, S.K., Patel, V.M., Chellappa, R., 2022. Towards performant
+and reliable undersampled MR reconstruction via diffusion model sampling. In:
+International Conference on Medical Image Computing and Computer-Assisted
+Intervention. Springer, pp. 623–633.
+Peng, H., Jiang, C., Cheng, J., Zhang, M., Wang, S., Liang, D., Liu, Q., 2023. One-shot
+generative prior in Hankel-k-space for parallel imaging reconstruction. IEEE Trans.
+Med. Imaging 42 (11), 3420–3435.
+Rahaman, N., Baratin, A., Arpit, D., Draxler, F., Lin, M., Hamprecht, F., Bengio, Y.,
+Courville, A., 2019. On the spectral bias of neural networks. In: International
+Conference on Machine Learning. PMLR, pp. 5301–5310.
+Reed, A.W., Kim, H., Anirudh, R., Mohan, K.A., Champley, K., Kang, J., Jayasuriya, S.,
+2021. Dynamic ct reconstruction from limited views with implicit neural represen-
+tations and parametric motion fields. In: Proceedings of the IEEE/CVF International
+Conference on Computer Vision. pp. 2258–2268.
+Sandino, C.M., Cheng, J.Y., Chen, F., Mardani, M., Pauly, J.M., Vasanawala, S.S., 2020.
+Compressed sensing: From research to clinical practice with deep neural networks:
+Shortening scan times for magnetic resonance imaging. IEEE Signal Process. Mag.
+37 (1), 117–127.
+Saragadam, V., LeJeune, D., Tan, J., Balakrishnan, G., Veeraraghavan, A., Bara-
+niuk, R.G., 2023. Wire: Wavelet implicit neural representations. In: Proceedings
+of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp.
+18507–18516.
+Shen, L., Pauly, J., Xing, L., 2022. NeRP: implicit neural representation learning with
+prior embedding for sparsely sampled image reconstruction. IEEE Trans. Neural
+Netw. Learn. Syst. 35 (1), 770–782.
+Shi, Z., Mettes, P., Maji, S., Snoek, C.G., 2022. On measuring and controlling the
+spectral bias of the deep image prior. Int. J. Comput. Vis. 130 (4), 885–908.
+Song, B., Kwon, S.M., Zhang, Z., Hu, X., Qu, Q., Shen, L., 2024. Solving inverse
+problems with latent diffusion models via hard data consistency. In: The Twelfth
+International Conference on Learning Representations.
+Song, J., Meng, C., Ermon, S., 2020. Denoising diffusion implicit models. arXiv preprint
+arXiv:2010.02502.
+Song, Y., Shen, L., Xing, L., Ermon, S., 2021. Solving inverse problems in medical
+imaging with score-based generative models. arXiv preprint arXiv:2111.08005.
+Medical Image Analysis 100 (2025) 103398 
+11 
+J. Chu et al.
+Strong, D., Chan, T., 2003. Edge-preserving and scale-dependent properties of total
+variation regularization. Inverse Problems 19 (6), S165.
+Tancik, M., Srinivasan, P., Mildenhall, B., Fridovich-Keil, S., Raghavan, N., Singhal, U.,
+Ramamoorthi, R., Barron, J., Ng, R., 2020. Fourier features let networks learn high
+frequency functions in low dimensional domains. Adv. Neural Inf. Process. Syst. 33,
+7537–7547.
+Tu, Z., Liu, D., Wang, X., Jiang, C., Zhu, P., Zhang, M., Wang, S., Liang, D.,
+Liu, Q., 2023. WKGM: weighted k-space generative model for parallel imaging
+reconstruction. NMR Biomed. 36 (11), e5005.
+Uecker, M., Lai, P., Murphy, M.J., Virtue, P., Elad, M., Pauly, J.M., Vasanawala, S.S.,
+Lustig, M., 2014. ESPIRiT—an eigenvalue approach to autocalibrating parallel MRI:
+where SENSE meets GRAPPA. Magn. Reson. Med. 71 (3), 990–1001.
+Ulyanov, D., Vedaldi, A., Lempitsky, V., 2018. Deep image prior. In: Proceedings of the
+IEEE Conference on Computer Vision and Pattern Recognition. pp. 9446–9454.
+Wang, J., Wang, Y., Deng, J., Liu, D., 2023. Unsupervised coordinate-based neural
+network for electrical impedance tomography. IEEE Trans. Comput. Imaging 9,
+1213–1225.
+Wu, Q., Feng, R., Wei, H., Yu, J., Zhang, Y., 2023. Self-supervised coordinate projection
+network for sparse-view computed tomography. IEEE Trans. Comput. Imaging 9,
+517–529.
+Xie, Y., Li, Q., 2022. Measurement-conditioned denoising diffusion probabilistic model
+for under-sampled medical image reconstruction. In: International Conference
+on Medical Image Computing and Computer-Assisted Intervention. Springer, pp.
+655–664.
+Xu, J., Moyer, D., Gagoski, B., Iglesias, J.E., Grant, P.E., Golland, P., Adalsteinsson, E.,
+2023. NeSVoR: implicit neural representation for slice-to-volume reconstruction in
+MRI. IEEE Trans. Med. Imaging 42 (6), 1707–1719.
+Yu, J., Wang, Y., Zhao, C., Ghanem, B., Zhang, J., 2023. Freedom: Training-free energy-
+guided conditional diffusion model. In: Proceedings of the IEEE/CVF International
+Conference on Computer Vision. pp. 23174–23184.
+Yüce, G., Ortiz-Jiménez, G., Besbinar, B., Frossard, P., 2022. A structured dictionary
+perspective on implicit neural representations. In: Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition. pp. 19228–19238.
+Zbontar, J., Knoll, F., Sriram, A., Murrell, T., Huang, Z., Muckley, M.J., Defazio, A.,
+Stern, R., Johnson, P., Bruno, M., et al., 2018. fastMRI: An open dataset and
+benchmarks for accelerated MRI. arXiv preprint arXiv:1811.08839.
+Zhang, T., Pauly, J.M., Levesque, I.R., 2015. Accelerating parameter mapping with a
+locally low rank constraint. Magn. Reson. Med. 73 (2), 655–661.
+Zhu, B., Liu, J.Z., Cauley, S.F., Rosen, B.R., Rosen, M.S., 2018. Image reconstruction
+by domain-transform manifold learning. Nature 555 (7697), 487–492.
+Medical Image Analysis 100 (2025) 103398 
+12 
