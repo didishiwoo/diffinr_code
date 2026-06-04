@@ -118,6 +118,20 @@ for step = T(2000) -> 1:
 
 > **当前状态**: Pipeline 跑通，INR-DC 功能正常。数值范围已收敛。重建质量与 GT 仍有差距，需进一步优化。
 
+### 结果对比图
+
+| Ground Truth | Pure DDPM |
+|:---:|:---:|
+| ![ground_truth](results/ground_truth/comparison_all.png) | ![pure_ddpm](results/pure_ddpm/comparison_all.png) |
+
+| v0 Phantom | DiffINR |
+|:---:|:---:|
+| ![v0_phantom](results/v0_phantom/comparison_all.png) | ![phantom_diffinr](results/phantom_diffinr/comparison_all.png) |
+
+| Improved |
+|:---:|
+| ![improved](results/improved/comparison_all.png) |
+
 ---
 
 ## 参考文献
