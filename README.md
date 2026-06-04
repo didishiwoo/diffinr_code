@@ -1,4 +1,4 @@
-# DiffINR — Implicit Neural Representation for MRI Reconstruction
+# DiffINR — Highly Accelerated MRI via Implicit Neural Representation Guided Posterior Sampling of Diffusion Models
 
 > **复现论文**: [Highly accelerated MRI via implicit neural representation guided posterior sampling of diffusion models](https://www.sciencedirect.com/science/article/pii/S1361841524003232) (Medical Image Analysis, 2025)
 >
